@@ -1,0 +1,1491 @@
+<script type="text/javascript">
+  var gk_isXlsx = false;
+  var gk_xlsxFileLookup = {};
+  var gk_fileData = {};
+  function filledCell(cell) {
+    return cell !== '' && cell != null;
+  }
+  function loadFileData(filename) {
+  if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+      try {
+          var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+          var firstSheetName = workbook.SheetNames[0];
+          var worksheet = workbook.Sheets[firstSheetName];
+
+          // Convert sheet to JSON to filter blank rows
+          var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+          // Filter out blank rows (rows where all cells are empty, null, or undefined)
+          var filteredData = jsonData.filter(row => row.some(filledCell));
+
+          // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+          var headerRowIndex = filteredData.findIndex((row, index) =>
+            row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+          );
+          // Fallback
+          if (headerRowIndex === -1 || headerRowIndex > 25) {
+            headerRowIndex = 0;
+          }
+
+          // Convert filtered JSON back to CSV
+          var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+          csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+          return csv;
+      } catch (e) {
+          console.error(e);
+          return "";
+      }
+  }
+  return gk_fileData[filename] || "";
+  }
+  </script><!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dự Báo Thời Tiết & Gợi Ý Du Lịch</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+<style>
+* {
+margin: 0;
+padding: 0;
+font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+box-sizing: border-box;
+}
+
+body {
+min-height: 100vh;
+display: flex;
+justify-content: center;
+align-items: center;
+background: linear-gradient(135deg, #71b7e6, #9b59b6);
+color: #fff;
+padding: 20px;
+overflow-x: hidden;
+background-size: cover;
+background-attachment: fixed;
+}
+
+.container {
+background: rgba(255, 255, 255, 0.1);
+backdrop-filter: blur(10px);
+border-radius: 20px;
+padding: 30px;
+max-width: 700px;
+width: 100%;
+box-shadow: 0 8px 32px rgba(31, 38, 135, 0.37);
+text-align: center;
+transition: transform 0.3s ease;
+}
+
+.container:hover {
+transform: scale(1.02);
+}
+
+.container.update {
+animation: updateAnimation 0.6s ease-in-out;
+}
+
+@keyframes updateAnimation {
+0% { transform: scale(1); box-shadow: 0 15px 35px rgba(0, 0, 0, 0.2); }
+50% { transform: scale(1.05); box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3); }
+100% { transform: scale(1); box-shadow: 0 15px 35px rgba(0, 0, 0, 0.2); }
+}
+
+h1 {
+font-size: 2.5em;
+margin-bottom: 20px;
+text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.search-box {
+display: flex;
+gap: 10px;
+margin-bottom: 20px;
+justify-content: center;
+}
+
+input[type="text"] {
+padding: 12px;
+border: none;
+border-radius: 25px;
+width: 70%;
+font-size: 1em;
+outline: none;
+background: rgba(255, 255, 255, 0.2);
+color: #fff;
+}
+
+input[type="text"]::placeholder {
+color: #ddd;
+}
+
+button {
+padding: 12px 20px;
+border: none;
+border-radius: 25px;
+background: #3498db;
+color: #fff;
+font-size: 1em;
+cursor: pointer;
+transition: background 0.3s ease;
+}
+
+button:hover {
+background: #2980b9;
+}
+
+.weather-info {
+margin-top: 20px;
+display: none;
+animation: fadeInScale 0.5s ease-in-out;
+}
+
+@keyframes fadeInScale {
+0% { opacity: 0; transform: scale(0.8); }
+100% { opacity: 1; transform: scale(1); }
+}
+
+.weather-info h2 {
+font-size: 1.8em;
+margin-bottom: 10px;
+}
+
+.weather-info p {
+font-size: 1.2em;
+margin: 8px 0;
+}
+
+.weather-icon {
+width: 100px;
+margin: 10px auto;
+}
+
+.suggestions {
+margin-top: 20px;
+padding: 15px;
+background: rgba(0, 0, 0, 0.2);
+border-radius: 15px;
+}
+
+.suggestions h3 {
+font-size: 1.5em;
+margin-bottom: 10px;
+}
+
+.suggestions ul {
+list-style: none;
+font-size: 1.1em;
+}
+
+.suggestions li {
+margin: 5px 0;
+}
+
+.error {
+font-size: 1.2em;
+animation: shakeInput 0.5s;
+color: #ff6b6b;
+margin-bottom: 10px;
+}
+
+.error-container {
+animation: shakeContainer 0.5s;
+}
+
+@keyframes shakeInput {
+0% { transform: translateX(0); }
+25% { transform: translateX(5px); }
+50% { transform: translateX(-5px); }
+75% { transform: translateX(5px); }
+100% { transform: translateX(0); }
+}
+
+@keyframes shakeContainer {
+0% { transform: translateX(0); }
+25% { transform: translateX(10px); }
+50% { transform: translateX(-10px); }
+75% { transform: translateX(10px); }
+100% { transform: translateX(0); }
+}
+
+.loader {
+border: 8px solid rgba(255, 255, 255, 0.2);
+border-top: 8px solid #3498db;
+border-radius: 50%;
+width: 50px;
+height: 50px;
+animation: spin 1s linear infinite;
+margin: 20px auto;
+display: none;
+}
+
+@keyframes spin {
+0% { transform: rotate(0deg); }
+100% { transform: rotate(360deg); }
+}
+
+.snowflake {
+color: #fff;
+font-size: 1em;
+position: fixed;
+top: -10%;
+z-index: 1000;
+animation: snowfall linear infinite;
+pointer-events: none;
+}
+
+@keyframes snowfall {
+0% { transform: translateY(-10vh) rotate(0deg); }
+100% { transform: translateY(100vh) rotate(360deg); }
+}
+
+.sun {
+position: fixed;
+top: 80px;
+right: 80px;
+width: 100px;
+height: 100px;
+background: radial-gradient(circle, #FFD700 40%, rgba(255, 215, 0, 0.3));
+border-radius: 50%;
+z-index: 10;
+display: none;
+animation: shine 4s infinite ease-in-out;
+box-shadow: 0 0 30px 10px rgba(255, 223, 0, 0.6);
+}
+
+@keyframes shine {
+0%, 100% { transform: scale(1); opacity: 0.95; }
+50% { transform: scale(1.1); opacity: 1; }
+}
+
+.sun-rays {
+position: absolute;
+top: 50%;
+left: 50%;
+width: 160px;
+height: 160px;
+margin-left: -80px;
+margin-top: -80px;
+border-radius: 50%;
+background: conic-gradient(rgba(255, 215, 0, 0.3) 0deg, transparent 30deg, rgba(255, 215, 0, 0.3) 60deg, transparent 90deg, rgba(255, 215, 0, 0.3) 120deg, transparent 150deg, rgba(255, 215, 0, 0.3) 180deg, transparent 210deg, rgba(255, 215, 0, 0.3) 240deg, transparent 270deg, rgba(255, 215, 0, 0.3) 300deg, transparent 330deg);
+animation: rotateRays 8s linear infinite;
+z-index: -1;
+}
+
+@keyframes rotateRays {
+from { transform: rotate(0deg); }
+to { transform: rotate(360deg); }
+}
+
+/* Backgrounds */
+.clear-sky-bg {
+background: linear-gradient(rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.1)), url('https://images.pexels.com/photos/96622/pexels-photo-96622.jpeg?auto=compress&cs=tinysrgb&w=1920') no-repeat center/cover fixed;
+}
+
+.sunny-hot-bg {
+background: linear-gradient(rgba(0, 0, 0, 0.1), rgba(0, 0, 0, 0.1)), url('https://images.pexels.com/photos/281260/pexels-photo-281260.jpeg?auto=compress&cs=tinysrgb&w=1920') no-repeat center/cover fixed;
+}
+
+.sunny-cool-bg {
+background: linear-gradient(rgba(0, 0, 0, 0.1), rgba(0, 0, 0, 0.1)), url('https://images.pexels.com/photos/296234/pexels-photo-296234.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=1') no-repeat center/cover fixed;
+}
+
+.light-clouds-bg {
+background: linear-gradient(rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.1)), url('https://images.pexels.com/photos/531767/pexels-photo-531767.jpeg?auto=compress&cs=tinysrgb&w=1920') no-repeat center/cover fixed;
+}
+
+.dark-clouds-bg {
+background: linear-gradient(rgba(0, 0, 0, 0.3), rgba(0, 0, 0, 0.3)), url('https://images.pexels.com/photos/209831/pexels-photo-209831.jpeg?auto=compress&cs=tinysrgb&w=1920') no-repeat center/cover fixed;
+}
+
+.light-rain-bg {
+background: linear-gradient(rgba(0, 0, 0, 0.2), rgba(0, 0, 0, 0.2)), url('https://images.pexels.com/photos/2144326/pexels-photo-2144326.jpeg?auto=compress&cs=tinysrgb&w=1920') no-repeat center/cover fixed;
+}
+
+.rain-bg {
+background: linear-gradient(rgba(0, 0, 0, 0.3), rgba(0, 0, 0, 0.3)), url('https://images.pexels.com/photos/110874/pexels-photo-110874.jpeg?auto=compress&cs=tinysrgb&w=1920') no-repeat center/cover fixed;
+}
+
+.heavy-rain-bg {
+background: linear-gradient(rgba(0, 0, 0, 0.4), rgba(0, 0, 0, 0.4)), url('https://images.pexels.com/photos/1530423/pexels-photo-1530423.jpeg?auto=compress&cs=tinysrgb&w=1920') no-repeat center/cover fixed;
+}
+
+.thunderstorm-bg {
+background: linear-gradient(rgba(0, 0, 0, 0.5), rgba(0, 0, 0, 0.5)), url('https://images.pexels.com/photos/1118869/pexels-photo-1118869.jpeg?auto=compress&cs=tinysrgb&w=1920') no-repeat center/cover fixed;
+}
+
+.snow-bg {
+background: linear-gradient(rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.1)), url('https://images.pexels.com/photos/688660/pexels-photo-688660.jpeg?auto=compress&cs=tinysrgb&w=1920') no-repeat center/cover fixed;
+}
+
+.mist-fog-bg {
+background: linear-gradient(rgba(0, 0, 0, 0.3), rgba(0, 0, 0, 0.3)), url('https://images.pexels.com/photos/167699/pexels-photo-167699.jpeg?auto=compress&cs=tinysrgb&w=1920') no-repeat center/cover fixed;
+}
+
+/* Text Colors */
+.light-text {
+color: #fff !important;
+}
+
+.light-text h1,
+.light-text h2,
+.light-text h3,
+.light-text p,
+.light-text li {
+color: #fff !important;
+text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+.light-text input[type="text"] {
+color: #fff !important;
+background: rgba(255, 255, 255, 0.2) !important;
+}
+
+.light-text input[type="text"]::placeholder {
+color: #ddd !important;
+}
+
+.light-text button {
+background: #3498db !important;
+color: #fff !important;
+}
+
+.light-text button:hover {
+background: #2980b9 !important;
+}
+
+.light-text .error {
+color: #ff6b6b !important;
+}
+
+.light-text .suggestions,
+.light-text .activities-container,
+.light-text .location-tips {
+background: rgba(0, 0, 0, 0.2) !important;
+}
+
+.dark-text {
+color: #fff !important;
+}
+
+.dark-text h1,
+.dark-text h2,
+.dark-text h3,
+.dark-text p,
+.dark-text li {
+color: #fff !important;
+text-shadow: 1px 1px 2px rgba(255, 255, 255, 0.5);
+}
+
+.dark-text input[type="text"] {
+color: #fff !important;
+background: rgba(0, 0, 0, 0.1) !important;
+}
+
+.dark-text input[type="text"]::placeholder {
+color: #fff !important;
+}
+
+.dark-text button {
+background: #2c3e50 !important;
+color: #fff !important;
+}
+
+.dark-text button:hover {
+background: #34495e !important;
+}
+
+.dark-text .error {
+color: #d63031 !important;
+}
+
+.dark-text .suggestions,
+.dark-text .activities-container,
+.dark-text .location-tips {
+background: rgba(0, 0, 0, 0.1) !important;
+}
+
+/* Activities */
+.activities-container {
+margin-top: 20px;
+padding: 15px;
+background: rgba(0, 0, 0, 0.2);
+border-radius: 15px;
+}
+
+.activities-container h3 {
+font-size: 1.5em;
+margin-bottom: 15px;
+}
+
+.activity-list {
+text-align: left;
+padding-left: 20px;
+}
+
+.activity-list li {
+margin: 10px 0;
+font-size: 1.1em;
+}
+
+.activity-category {
+font-weight: bold;
+margin-top: 10px;
+margin-bottom: 5px;
+font-size: 1.2em;
+color: #f1c40f;
+text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+.activity-item {
+display: flex;
+align-items: center;
+margin: 8px 0;
+}
+
+.activity-item i {
+margin-right: 10px;
+color: #3498db;
+}
+
+.weather-summary {
+font-size: 1.3em;
+margin: 15px 0;
+padding: 10px;
+background: rgba(255, 255, 255, 0.1);
+border-radius: 10px;
+text-align: center;
+}
+
+/* Location Tips */
+.location-tips {
+margin-top: 20px;
+padding: 15px;
+background: rgba(0, 0, 0, 0.2);
+border-radius: 15px;
+}
+
+.location-tips h3 {
+font-size: 1.5em;
+margin-bottom: 15px;
+}
+
+.location-list {
+display: grid;
+grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+gap: 15px;
+margin-top: 15px;
+}
+
+.location-item {
+background: rgba(255, 255, 255, 0.1);
+padding: 15px;
+border-radius: 10px;
+text-align: center;
+transition: all 0.3s ease;
+cursor: pointer;
+position: relative;
+overflow: hidden;
+}
+
+.location-item:hover {
+transform: translateY(-5px);
+box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+}
+
+.location-icon {
+font-size: 2em;
+margin-bottom: 10px;
+color: #3498db;
+}
+
+.location-name {
+font-weight: bold;
+margin-bottom: 5px;
+}
+
+.location-desc {
+font-size: 0.9em;
+}
+
+.location-item::after {
+content: 'Chi tiết';
+position: absolute;
+bottom: -50px;
+left: 0;
+width: 100%;
+background: rgba(52, 152, 219, 0.8);
+color: white;
+padding: 10px 0;
+transition: bottom 0.3s ease;
+}
+
+.location-item:hover::after {
+bottom: 0;
+}
+
+/* Modal */
+.location-modal {
+display: none;
+position: fixed;
+top: 0;
+left: 0;
+width: 100%;
+height: 100%;
+background: rgba(0, 0, 0, 0.7);
+z-index: 1000;
+justify-content: center;
+align-items: center;
+animation: fadeIn 0.3s ease-out;
+}
+
+@keyframes fadeIn {
+from { opacity: 0; }
+to { opacity: 1; }
+}
+
+.modal-content {
+background: rgba(255, 255, 255, 0.9);
+color: #333;
+width: 90%;
+max-width: 600px;
+max-height: 80vh;
+border-radius: 15px;
+padding: 20px;
+position: relative;
+overflow-y: auto;
+box-shadow: 0 5px 30px rgba(0, 0, 0, 0.3);
+animation: slideUp 0.4s ease-out;
+}
+
+@keyframes slideUp {
+from { transform: translateY(50px); opacity: 0; }
+to { transform: translateY(0); opacity: 1; }
+}
+
+.close-modal {
+position: absolute;
+top: 10px;
+right: 15px;
+font-size: 25px;
+color: #e74c3c;
+cursor: pointer;
+transition: transform 0.3s ease;
+}
+
+.close-modal:hover {
+transform: rotate(90deg);
+}
+
+.location-modal-header {
+display: flex;
+align-items: center;
+border-bottom: 1px solid #ddd;
+padding-bottom: 10px;
+margin-bottom: 15px;
+}
+
+.modal-location-icon {
+font-size: 2.5em;
+margin-right: 15px;
+color: #3498db;
+}
+
+.modal-location-title h2 {
+font-size: 1.6em;
+margin-bottom: 5px;
+}
+
+.modal-location-title p {
+font-size: 1em;
+color: #666;
+}
+
+.location-details {
+margin: 15px 0;
+}
+
+.location-detail-section {
+margin-bottom: 20px;
+}
+
+.location-detail-section h3 {
+font-size: 1.2em;
+margin-bottom: 8px;
+border-left: 4px solid #3498db;
+padding-left: 10px;
+}
+
+.detail-item {
+margin: 8px 0;
+display: flex;
+align-items: center;
+}
+
+.detail-item i {
+margin-right: 10px;
+color: #3498db;
+width: 20px;
+text-align: center;
+}
+
+.weather-recommendation {
+background: rgba(52, 152, 219, 0.1);
+border-left: 4px solid #3498db;
+padding: 10px;
+margin-top: 15px;
+border-radius: 0 8px 8px 0;
+}
+
+.weather-recommendation h4 {
+margin-bottom: 8px;
+color: #3498db;
+}
+
+.modal-buttons {
+margin-top: 20px;
+display: flex;
+gap: 10px;
+justify-content: center;
+}
+
+.modal-btn {
+padding: 10px 20px;
+border: none;
+border-radius: 25px;
+background: #3498db;
+color: #fff;
+cursor: pointer;
+transition: background 0.3s ease;
+}
+
+.modal-btn:hover {
+background: #2980b9;
+}
+
+@media (max-width: 768px) {
+.container {
+  padding: 15px;
+}
+
+h1 {
+  font-size: 2em;
+}
+
+.location-list {
+  grid-template-columns: 1fr;
+}
+
+.modal-content {
+  width: 95%;
+  padding: 15px;
+}
+
+.modal-location-icon {
+  font-size: 2em;
+}
+
+.sun {
+  top: 20px;
+  right: 20px;
+  width: 60px;
+  height: 60px;
+}
+
+.sun-rays {
+  width: 100px;
+  height: 100px;
+  margin-left: -50px;
+  margin-top: -50px;
+}
+}
+</style>
+</head>
+<body>
+<div class="sun" id="sunEffect">
+<div class="sun-rays"></div>
+</div>
+<div class="container light-text">
+<h1>Dự Báo Thời Tiết & Gợi Ý Du Lịch</h1>
+<div class="search-box">
+<input type="text" id="locationInput" placeholder="Nhập xã, huyện, tỉnh..." autofocus>
+<button id="search-btn">Tìm kiếm</button>
+</div>
+<div id="error-message" class="error"></div>
+<div class="loader" id="loader"></div>
+<div id="weather-info" class="weather-info">
+<div class="weather-heading">
+  <h2 id="locationName"></h2>
+  <p id="date-time"></p>
+</div>
+<div class="weather-details">
+  <div class="weather-icon" id="weather-icon-container"></div>
+  <p id="temperature"></p>
+  <p id="weather-description"></p>
+  <p id="feels-like"></p>
+  <p id="humidity"></p>
+  <p id="wind-speed"></p>
+</div>
+<div class="weather-summary" id="weather-summary"></div>
+<div class="activities-container" id="activities-container">
+  <h3>Hoạt động phù hợp với thời tiết hiện tại:</h3>
+  <ul class="activity-list" id="activity-list"></ul>
+</div>
+<div class="suggestions" id="weather-suggestions">
+  <h3>Gợi ý dựa trên thời tiết:</h3>
+  <ul id="weather-tips"></ul>
+</div>
+<div class="location-tips" id="location-tips">
+  <h3>Địa điểm du lịch nên đến:</h3>
+  <div class="location-list" id="location-list"></div>
+</div>
+</div>
+</div>
+
+<div id="location-modal" class="location-modal">
+<div class="modal-content">
+<span class="close-modal" id="close-modal">×</span>
+<div class="location-modal-header">
+  <div class="modal-location-icon" id="modal-location-icon">
+    <i class="fas fa-map-marker-alt"></i>
+  </div>
+  <div class="modal-location-title">
+    <h2 id="modal-location-name"></h2>
+    <p id="modal-location-type"></p>
+  </div>
+</div>
+<div class="location-details">
+  <div class="location-detail-section">
+    <h3>Thông tin cơ bản</h3>
+    <div class="detail-item" id="modal-address">
+      <i class="fas fa-map-marker-alt"></i>
+      <span></span>
+    </div>
+    <div class="detail-item" id="modal-hours">
+      <i class="fas fa-clock"></i>
+      <span></span>
+    </div>
+    <div class="detail-item" id="modal-contact">
+      <i class="fas fa-phone"></i>
+      <span></span>
+    </div>
+  </div>
+  <div class="location-detail-section">
+    <h3>Mô tả</h3>
+    <p id="modal-description"></p>
+  </div>
+  <div class="location-detail-section">
+    <h3>Đặc điểm nổi bật</h3>
+    <div id="modal-features"></div>
+  </div>
+  <div class="weather-recommendation">
+    <h4>Gợi ý cho thời tiết hiện tại</h4>
+    <p id="modal-weather-tip"></p>
+  </div>
+  <div class="modal-buttons">
+    <button class="modal-btn btn-website" id="modal-website">
+      <i class="fas fa-globe"></i> Trang web
+    </button>
+    <button class="modal-btn btn-directions" id="modal-directions">
+      <i class="fas fa-directions"></i> Chỉ đường
+    </button>
+  </div>
+</div>
+</div>
+</div>
+
+<script>
+// OpenWeatherMap API Key (Replace with your own API key)
+const apiKey = 'c7db889435d4a6f6a0b5263e058354fb'; // Get your API key from https://openweathermap.org/
+
+// DOM Elements
+const locationInput = document.getElementById('locationInput');
+const searchBtn = document.getElementById('search-btn');
+const errorMessage = document.getElementById('error-message');
+const weatherInfo = document.getElementById('weather-info');
+const locationNameElement = document.getElementById('locationName');
+const dateTimeElement = document.getElementById('date-time');
+const temperatureElement = document.getElementById('temperature');
+const weatherDescriptionElement = document.getElementById('weather-description');
+const feelsLikeElement = document.getElementById('feels-like');
+const humidityElement = document.getElementById('humidity');
+const windSpeedElement = document.getElementById('wind-speed');
+const weatherIconContainer = document.getElementById('weather-icon-container');
+const weatherTipsElement = document.getElementById('weather-tips');
+const activityListElement = document.getElementById('activity-list');
+const weatherSummaryElement = document.getElementById('weather-summary');
+const locationListElement = document.getElementById('location-list');
+const loader = document.getElementById('loader');
+const locationModal = document.getElementById('location-modal');
+const closeModalBtn = document.getElementById('close-modal');
+const modalLocationIcon = document.getElementById('modal-location-icon');
+const modalLocationName = document.getElementById('modal-location-name');
+const modalLocationType = document.getElementById('modal-location-type');
+const modalAddress = document.getElementById('modal-address');
+const modalHours = document.getElementById('modal-hours');
+const modalContact = document.getElementById('modal-contact');
+const modalDescription = document.getElementById('modal-description');
+const modalFeatures = document.getElementById('modal-features');
+const modalWeatherTip = document.getElementById('modal-weather-tip');
+const modalWebsiteBtn = document.getElementById('modal-website');
+const modalDirectionsBtn = document.getElementById('modal-directions');
+const sun = document.getElementById('sunEffect');
+
+// Event Listeners
+document.addEventListener('DOMContentLoaded', () => {
+searchBtn.addEventListener('click', searchWeather);
+locationInput.addEventListener('keypress', (e) => {
+  if (e.key === 'Enter') searchWeather();
+});
+closeModalBtn.addEventListener('click', () => {
+  locationModal.style.display = 'none';
+});
+locationModal.addEventListener('click', (e) => {
+  if (e.target === locationModal) locationModal.style.display = 'none';
+});
+});
+
+// Utility Functions
+function showLoader() {
+loader.style.display = 'block';
+weatherInfo.style.display = 'none';
+}
+
+function hideLoader() {
+loader.style.display = 'none';
+}
+
+function showError(message) {
+errorMessage.textContent = message;
+errorMessage.style.display = 'block';
+document.querySelector('.container').classList.add('error-container');
+setTimeout(() => {
+  document.querySelector('.container').classList.remove('error-container');
+}, 500);
+}
+
+function clearError() {
+errorMessage.textContent = '';
+errorMessage.style.display = 'none';
+}
+
+function capitalizeFirstLetter(str) {
+return str.charAt(0).toUpperCase() + str.slice(1);
+}
+
+// Simplify location name for search queries
+function simplifyLocationName(displayName) {
+// Split by commas and take the first significant part (city, town, or district)
+const parts = displayName.split(',').map(part => part.trim());
+// Prioritize the first part that looks like a city/town/district name
+for (const part of parts) {
+  if (part && !part.toLowerCase().includes('province') && !part.toLowerCase().includes('vietnam') && !part.match(/ward|district \d+/i)) {
+    return part;
+  }
+}
+// Fallback to the first part if no clear match
+return parts[0] || displayName;
+}
+
+// Search Weather
+async function searchWeather() {
+const location = locationInput.value.trim();
+if (!location) {
+  showError('Vui lòng nhập tên xã, huyện, tỉnh!');
+  return;
+}
+if (!apiKey || apiKey === 'YOUR_API_KEY_HERE') {
+  showError('Vui lòng nhập API Key hợp lệ trong mã nguồn');
+  return;
+}
+showLoader();
+clearError();
+try {
+  const geoUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(location)}`;
+  const geoRes = await fetch(geoUrl);
+  if (!geoRes.ok) throw new Error('Lỗi kết nối đến dịch vụ địa điểm');
+  const geoData = await geoRes.json();
+  if (!geoData.length) throw new Error('Không tìm thấy địa điểm!');
+
+  const lat = geoData[0].lat;
+  const lon = geoData[0].lon;
+  const displayName = geoData[0].display_name;
+
+  const weatherUrl = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${apiKey}&units=metric&lang=vi`;
+  const weatherRes = await fetch(weatherUrl);
+  if (!weatherRes.ok) {
+    if (weatherRes.status === 401) throw new Error('API Key không hợp lệ');
+    throw new Error('Lỗi kết nối đến dịch vụ thời tiết');
+  }
+  const data = await weatherRes.json();
+  hideLoader();
+  displayWeatherData(data, displayName);
+} catch (error) {
+  hideLoader();
+  showError(error.message);
+}
+}
+
+// Display Weather Data
+function displayWeatherData(data, displayName) {
+if (!data || !data.weather || !data.main) {
+  showError('Dữ liệu thời tiết không hợp lệ');
+  return;
+}
+
+const weatherId = data.weather[0].id;
+const weatherMain = data.weather[0].main;
+const weatherDescription = data.weather[0].description;
+const temp = Math.round(data.main.temp);
+
+locationNameElement.textContent = displayName;
+dateTimeElement.textContent = new Date().toLocaleString('vi-VN');
+temperatureElement.textContent = `Nhiệt độ: ${temp}°C`;
+weatherDescriptionElement.textContent = `Thời tiết: ${weatherDescription}`;
+feelsLikeElement.textContent = `Cảm giác như: ${Math.round(data.main.feels_like)}°C`;
+humidityElement.textContent = `Độ ẩm: ${data.main.humidity}%`;
+windSpeedElement.textContent = `Tốc độ gió: ${Math.round(data.wind.speed * 3.6)} km/h`;
+
+const iconCode = data.weather[0].icon;
+weatherIconContainer.innerHTML = `<img src="https://openweathermap.org/img/wn/${iconCode}@2x.png" alt="${weatherDescription}" style="width: 100px;">`;
+
+setWeatherSummary(weatherMain, temp, weatherDescription);
+generateWeatherTips(weatherMain, temp, data.main.feels_like, data.wind.speed);
+generateActivities(weatherMain, temp);
+generateLocationSuggestions(weatherMain, temp, displayName);
+updateVisuals(weatherId, weatherMain, temp);
+
+weatherInfo.style.display = 'block';
+document.querySelector('.container').classList.add('update');
+setTimeout(() => {
+  document.querySelector('.container').classList.remove('update');
+}, 600);
+}
+
+// Set Weather Summary
+function setWeatherSummary(weatherMain, temp, weatherDescription) {
+let summaryText = '';
+switch (weatherMain.toLowerCase()) {
+  case 'clear':
+    summaryText = temp >= 30 ? `Trời nắng nóng ${temp}°C. Phù hợp cho các hoạt động dưới nước hoặc trong nhà.` :
+                 temp >= 20 ? `Trời quang đãng, dễ chịu ${temp}°C. Lý tưởng cho du lịch ngoài trời.` :
+                 `Trời quang nhưng mát ${temp}°C. Thích hợp cho đi dạo hoặc khám phá nhẹ nhàng.`;
+    break;
+  case 'clouds':
+    summaryText = `Trời nhiều mây ${temp}°C. Phù hợp cho các hoạt động ngoài trời nhẹ hoặc tham quan văn hóa.`;
+    break;
+  case 'rain':
+  case 'drizzle':
+    summaryText = `Trời mưa ${temp}°C. Nên chọn các điểm đến trong nhà như bảo tàng, nhà hàng.`;
+    break;
+  case 'thunderstorm':
+    summaryText = `Trời bão ${temp}°C. Hãy ở trong nhà để đảm bảo an toàn, chọn các địa điểm giải trí trong nhà.`;
+    break;
+  case 'snow':
+    summaryText = `Trời tuyết ${temp}°C. Phù hợp cho các hoạt động mùa đông hoặc thư giãn trong không gian ấm cúng.`;
+    break;
+  default:
+    summaryText = `Thời tiết ${weatherDescription} ${temp}°C. Kiểm tra gợi ý để chọn điểm đến phù hợp.`;
+}
+weatherSummaryElement.textContent = summaryText;
+}
+
+// Generate Weather Tips
+function generateWeatherTips(weatherMain, temp, feelsLike, windSpeed) {
+weatherTipsElement.innerHTML = '';
+const tips = [];
+switch (weatherMain.toLowerCase()) {
+  case 'clear':
+    if (temp >= 30) {
+      tips.push('Mang kem chống nắng, mũ và kính râm khi tham quan ngoài trời.');
+      tips.push('Uống đủ nước để tránh mất nước trong thời tiết nóng.');
+    } else if (temp >= 20) {
+      tips.push('Thời tiết lý tưởng để khám phá các điểm du lịch ngoài trời.');
+      tips.push('Mang áo khoác nhẹ cho buổi tối nếu ở ngoài lâu.');
+    } else {
+      tips.push('Mang áo khoác mỏng vì trời có thể se lạnh vào sáng sớm hoặc tối.');
+      tips.push('Tận hưởng không khí trong lành tại các công viên hoặc khu du lịch.');
+    }
+    break;
+  case 'clouds':
+    tips.push('Ánh sáng khuếch tán, lý tưởng để chụp ảnh tại các điểm tham quan.');
+    tips.push('Mang ô hoặc áo mưa nhẹ để đề phòng mưa bất chợt.');
+    break;
+  case 'rain':
+  case 'drizzle':
+    tips.push('Mang ô hoặc áo mưa khi di chuyển giữa các điểm tham quan.');
+    tips.push('Ưu tiên các điểm đến trong nhà như bảo tàng, trung tâm thương mại.');
+    break;
+  case 'thunderstorm':
+    tips.push('Tránh các hoạt động ngoài trời để đảm bảo an toàn.');
+    tips.push('Thư giãn tại các quán cafe, spa hoặc rạp chiếu phim trong nhà.');
+    break;
+  case 'snow':
+    tips.push('Mặc quần áo ấm, giày chống trượt khi tham quan các điểm ngoài trời.');
+    tips.push('Cẩn thận khi di chuyển trong điều kiện tuyết rơi hoặc băng giá.');
+    break;
+  default:
+    tips.push('Kiểm tra thời tiết chi tiết trước khi lên kế hoạch tham quan.');
+    tips.push('Chuẩn bị ô, áo khoác hoặc các vật dụng phù hợp với thời tiết.');
+}
+tips.forEach(tip => {
+  const li = document.createElement('li');
+  li.textContent = tip;
+  weatherTipsElement.appendChild(li);
+});
+}
+
+// Generate Activities
+function generateActivities(weatherMain, temp) {
+activityListElement.innerHTML = '';
+const activities = {
+  outdoor: [],
+  indoor: [],
+  cultural: [],
+  dining: [],
+  relaxation: []
+};
+
+switch (weatherMain.toLowerCase()) {
+  case 'clear':
+    if (temp >= 30) {
+      activities.outdoor.push({ icon: 'fa-swimming-pool', text: 'Bơi lội tại các khu du lịch biển hoặc hồ bơi' });
+      activities.indoor.push({ icon: 'fa-film', text: 'Xem phim tại rạp chiếu phim mát mẻ' });
+      activities.dining.push({ icon: 'fa-ice-cream', text: 'Thưởng thức kem hoặc đồ uống lạnh tại quán' });
+    } else if (temp >= 20) {
+      activities.outdoor.push({ icon: 'fa-hiking', text: 'Khám phá các cung đường trekking hoặc khu du lịch sinh thái' });
+      activities.cultural.push({ icon: 'fa-landmark', text: 'Tham quan đền, chùa hoặc di tích lịch sử' });
+      activities.dining.push({ icon: 'fa-utensils', text: 'Ăn uống tại nhà hàng ngoài trời với view đẹp' });
+    } else {
+      activities.outdoor.push({ icon: 'fa-walking', text: 'Dạo bộ quanh các khu du lịch hoặc công viên' });
+      activities.indoor.push({ icon: 'fa-coffee', text: 'Thưởng thức cà phê tại quán view đẹp' });
+      activities.relaxation.push({ icon: 'fa-book', text: 'Đọc sách tại thư viện hoặc quán cafe yên tĩnh' });
+    }
+    break;
+  case 'clouds':
+    activities.outdoor.push({ icon: 'fa-camera', text: 'Chụp ảnh tại các điểm du lịch với ánh sáng dịu' });
+    activities.indoor.push({ icon: 'fa-shopping-bag', text: 'Mua sắm tại các khu chợ hoặc trung tâm thương mại' });
+    activities.cultural.push({ icon: 'fa-museum', text: 'Tham quan bảo tàng hoặc triển lãm nghệ thuật' });
+    break;
+  case 'rain':
+  case 'drizzle':
+    activities.indoor.push({ icon: 'fa-film', text: 'Xem phim tại rạp chiếu phim' });
+    activities.cultural.push({ icon: 'fa-museum', text: 'Khám phá bảo tàng hoặc nhà văn hóa' });
+    activities.relaxation.push({ icon: 'fa-coffee', text: 'Thư giãn tại quán cafe với không gian ấm cúng' });
+    break;
+  case 'thunderstorm':
+    activities.indoor.push({ icon: 'fa-spa', text: 'Thư giãn tại spa hoặc trung tâm chăm sóc sức khỏe' });
+    activities.relaxation.push({ icon: 'fa-film', text: 'Xem phim tại nhà hoặc rạp chiếu phim' });
+    activities.dining.push({ icon: 'fa-utensils', text: 'Thưởng thức bữa ăn tại nhà hàng sang trọng' });
+    break;
+  case 'snow':
+    activities.outdoor.push({ icon: 'fa-snowman', text: 'Chơi đùa trong tuyết tại các khu du lịch (nếu an toàn)' });
+    activities.indoor.push({ icon: 'fa-mug-hot', text: 'Thưởng thức đồ uống nóng tại quán cafe' });
+    activities.relaxation.push({ icon: 'fa-spa', text: 'Thư giãn tại spa với bồn nước nóng' });
+    break;
+  default:
+    activities.indoor.push({ icon: 'fa-coffee', text: 'Thưởng thức đồ uống tại quán cafe nổi tiếng' });
+    activities.cultural.push({ icon: 'fa-landmark', text: 'Tham quan các địa điểm văn hóa đặc sắc' });
+}
+
+for (const [category, items] of Object.entries(activities)) {
+  if (items.length > 0) {
+    const header = document.createElement('div');
+    header.className = 'activity-category';
+    header.innerHTML = `<i class="fas fa-${category === 'outdoor' ? 'sun' : category === 'indoor' ? 'home' : category === 'cultural' ? 'landmark' : category === 'dining' ? 'utensils' : 'bed'}"></i> ${
+      category === 'outdoor' ? 'Hoạt động ngoài trời' :
+      category === 'indoor' ? 'Hoạt động trong nhà' :
+      category === 'cultural' ? 'Trải nghiệm văn hóa' :
+      category === 'dining' ? 'Ẩm thực' : 'Thư giãn'
+    }`;
+    activityListElement.appendChild(header);
+    items.forEach(item => {
+      const li = document.createElement('li');
+      li.className = 'activity-item';
+      li.innerHTML = `<i class="fas ${item.icon}"></i> ${item.text}`;
+      activityListElement.appendChild(li);
+    });
+  }
+}
+}
+
+// Generate Location Suggestions
+function generateLocationSuggestions(weatherMain, temp, displayName) {
+locationListElement.innerHTML = '';
+const locations = [];
+const simplifiedLocation = simplifyLocationName(displayName);
+
+// Mock database of tourist attractions
+const touristAttractions = {
+  'hanoi': [
+    {
+      icon: 'fa-water',
+      name: 'Hồ Hoàn Kiếm',
+      desc: 'Biểu tượng văn hóa của Hà Nội',
+      type: 'Danh lam thắng cảnh',
+      details: {
+        address: 'Quận Hoàn Kiếm, Hà Nội',
+        hours: 'Cả ngày, đền Ngọc Sơn: 8:00 - 17:00',
+        contact: 'Ban quản lý Hồ Hoàn Kiếm',
+        description: 'Hồ Hoàn Kiếm là trung tâm văn hóa và lịch sử của Hà Nội, nổi tiếng với cầu Thê Húc và đền Ngọc Sơn.',
+        features: ['Đền Ngọc Sơn', 'Cầu Thê Húc', 'Khu vực đi bộ'],
+        weatherTip: weatherMain.toLowerCase() === 'clear' ? 'Dạo quanh hồ vào buổi tối để ngắm ánh đèn lung linh.' :
+                   weatherMain.toLowerCase().includes('rain') ? 'Mang ô và thăm đền Ngọc Sơn để tránh mưa.' :
+                   'Tham quan vào sáng sớm để tận hưởng không khí yên bình.',
+        mapUrl: 'https://www.google.com/maps/search/hoan+kiem+lake'
+      }
+    },
+    {
+      icon: 'fa-landmark',
+      name: 'Văn Miếu Quốc Tử Giám',
+      desc: 'Di tích lịch sử và văn hóa',
+      type: 'Di tích lịch sử',
+      details: {
+        address: 'Quận Đống Đa, Hà Nội',
+        hours: '8:00 - 17:00',
+        contact: 'Ban quản lý Văn Miếu',
+        description: 'Văn Miếu là trường đại học đầu tiên của Việt Nam, nơi thờ Khổng Tử và các bậc hiền triết.',
+        features: ['Khuôn viên yên tĩnh', 'Bia tiến sĩ', 'Kiến trúc cổ'],
+        weatherTip: weatherMain.toLowerCase().includes('rain') ? 'Mang ô và khám phá lịch sử trong không gian kín.' :
+                   'Tham quan vào buổi sáng để chụp ảnh với ánh sáng đẹp.',
+        mapUrl: 'https://www.google.com/maps/search/van+mieu+quoc+tu+giam'
+      }
+    }
+  ],
+  'ho chi minh': [
+    {
+      icon: 'fa-landmark',
+      name: 'Dinh Độc Lập',
+      desc: 'Biểu tượng lịch sử của Sài Gòn',
+      type: 'Di tích lịch sử',
+      details: {
+        address: '135 Nam Kỳ Khởi Nghĩa, Quận 1, TP.HCM',
+        hours: '7:30 - 16:00',
+        contact: 'Ban quản lý Dinh Độc Lập',
+        description: 'Dinh Độc Lập là nơi diễn ra các sự kiện lịch sử quan trọng, với kiến trúc độc đáo.',
+        features: ['Phòng họp lịch sử', 'Xe tăng 843', 'Vườn cây xanh'],
+        weatherTip: weatherMain.toLowerCase().includes('rain') ? 'Khám phá các phòng trong nhà để tránh mưa.' :
+                   'Dạo vườn cây xanh vào buổi chiều mát mẻ.',
+        mapUrl: 'https://www.google.com/maps/search/dinh+doc+lap'
+      }
+    },
+    {
+      icon: 'fa-church',
+      name: 'Nhà thờ Đức Bà',
+      desc: 'Kiến trúc Pháp nổi bật',
+      type: 'Kiến trúc tôn giáo',
+      details: {
+        address: 'Công xã Paris, Quận 1, TP.HCM',
+        hours: 'Cả ngày, lễ: theo lịch nhà thờ',
+        contact: 'Ban quản lý nhà thờ',
+        description: 'Nhà thờ Đức Bà là điểm check-in nổi tiếng với kiến trúc Pháp cổ kính.',
+        features: ['Tháp chuông đôi', 'Công viên xung quanh', 'Không gian chụp ảnh'],
+        weatherTip: weatherMain.toLowerCase() === 'clear' ? 'Chụp ảnh bên ngoài vào buổi sáng hoặc chiều tà.' :
+                   'Tham quan bên trong để tránh mưa hoặc nắng nóng.',
+        mapUrl: 'https://www.google.com/maps/search/notre+dame+basilica'
+      }
+    }
+  ],
+  'sa pa': [
+    {
+      icon: 'fa-mountain',
+      name: 'Núi Fansipan',
+      desc: 'Nóc nhà Đông Dương',
+      type: 'Du lịch sinh thái',
+      details: {
+        address: 'Thị xã Sa Pa, Lào Cai',
+        hours: '6:00 - 17:00',
+        contact: 'Ban quản lý cáp treo Fansipan',
+        description: 'Fansipan là đỉnh núi cao nhất Việt Nam, nổi tiếng với cảnh quan hùng vĩ và cáp treo hiện đại.',
+        features: ['Cáp treo', 'Chùa trên đỉnh', 'Cảnh quan núi non'],
+        weatherTip: weatherMain.toLowerCase() === 'clear' ? 'Tham quan vào ngày nắng để ngắm cảnh rõ nét.' :
+                   weatherMain.toLowerCase().includes('snow') ? 'Mặc ấm và chuẩn bị giày chống trượt.' :
+                   'Kiểm tra thời tiết trước khi đi cáp treo.',
+        mapUrl: 'https://www.google.com/maps/search/fansipan+mountain'
+      }
+    },
+    {
+      icon: 'fa-home',
+      name: 'Bản Cát Cát',
+      desc: 'Làng dân tộc truyền thống',
+      type: 'Văn hóa dân tộc',
+      details: {
+        address: 'Xã San Sả Hồ, Sa Pa, Lào Cai',
+        hours: '7:00 - 17:00',
+        contact: 'Ban quản lý du lịch Cát Cát',
+        description: 'Bản Cát Cát là nơi sinh sống của người H’Mông, nổi tiếng với văn hóa và cảnh sắc độc đáo.',
+        features: ['Nhà truyền thống', 'Thác nước', 'Sản phẩm thủ công'],
+        weatherTip: weatherMain.toLowerCase().includes('rain') ? 'Mang ô và giày chống trượt khi đi bộ.' :
+                   'Tham quan vào buổi sáng để trải nghiệm văn hóa địa phương.',
+        mapUrl: 'https://www.google.com/maps/search/cat+cat+village'
+      }
+    }
+  ],
+  'da nang': [
+    {
+      icon: 'fa-water',
+      name: 'Bãi biển Mỹ Khê',
+      desc: 'Bãi biển đẹp nhất Đà Nẵng',
+      type: 'Bãi biển',
+      details: {
+        address: 'Quận Sơn Trà, Đà Nẵng',
+        hours: 'Cả ngày',
+        contact: 'Ban quản lý bãi biển',
+        description: 'Bãi biển Mỹ Khê được Forbes bình chọn là một trong những bãi biển đẹp nhất hành tinh.',
+        features: ['Cát trắng mịn', 'Khu vực tắm biển', 'Nhà hàng ven biển'],
+        weatherTip: weatherMain.toLowerCase() === 'clear' ? 'Tắm biển và ngắm hoàng hôn vào buổi chiều.' :
+                   weatherMain.toLowerCase().includes('rain') ? 'Thưởng thức hải sản tại nhà hàng ven biển.' :
+                   'Mang kem chống nắng nếu trời nắng gắt.',
+        mapUrl: 'https://www.google.com/maps/search/my+khe+beach'
+      }
+    },
+    {
+      icon: 'fa-bridge',
+      name: 'Cầu Rồng',
+      desc: 'Biểu tượng của Đà Nẵng',
+      type: 'Kiến trúc hiện đại',
+      details: {
+        address: 'Quận Hải Châu, Đà Nẵng',
+        hours: 'Cả ngày, phun lửa: 21:00 thứ 7, CN',
+        contact: 'Ban quản lý cầu Rồng',
+        description: 'Cầu Rồng là cây cầu biểu tượng với thiết kế độc đáo và show phun lửa đặc sắc.',
+        features: ['Show phun lửa', 'Ánh sáng ban đêm', 'View sông Hàn'],
+        weatherTip: weatherMain.toLowerCase() === 'clear' ? 'Xem show phun lửa vào tối cuối tuần.' :
+                   'Chụp ảnh cầu vào ban ngày nếu trời nhiều mây.',
+        mapUrl: 'https://www.google.com/maps/search/dragon+bridge'
+      }
+    }
+  ]
+};
+
+// Generic suggestions based on weather
+const genericLocations = [];
+switch (weatherMain.toLowerCase()) {
+  case 'clear':
+    if (temp >= 30) {
+      genericLocations.push({
+        icon: 'fa-swimming-pool',
+        name: 'Bãi biển hoặc hồ bơi',
+        desc: 'Giải nhiệt trong ngày nắng nóng',
+        type: 'Giải trí',
+        details: {
+          address: `Gần ${displayName}`,
+          hours: '7:00 - 19:00',
+          contact: 'Liên hệ ban quản lý',
+          description: 'Các bãi biển hoặc hồ bơi là nơi lý tưởng để thư giãn trong thời tiết nóng.',
+          features: ['Khu vực tắm', 'Quầy đồ uống'],
+          weatherTip: 'Mang kem chống nắng và uống nhiều nước.',
+          mapUrl: `https://www.google.com/maps/search/beaches+near+${encodeURIComponent(simplifiedLocation)}`
+        }
+      });
+    } else {
+      genericLocations.push({
+        icon: 'fa-tree',
+        name: 'Công viên hoặc khu sinh thái',
+        desc: 'Thư giãn trong không gian xanh',
+        type: 'Không gian xanh',
+        details: {
+          address: `Gần ${displayName}`,
+          hours: '5:00 - 22:00',
+          contact: 'Ban quản lý khu vực',
+          description: 'Công viên hoặc khu sinh thái mang đến không khí trong lành và không gian thư giãn.',
+          features: ['Khu vực picnic', 'Đường đi bộ'],
+          weatherTip: 'Mang khăn picnic và nước uống để tận hưởng ngày đẹp trời.',
+          mapUrl: `https://www.google.com/maps/search/parks+near+${encodeURIComponent(simplifiedLocation)}`
+        }
+      });
+    }
+    break;
+  case 'clouds':
+    genericLocations.push({
+      icon: 'fa-camera',
+      name: 'Điểm chụp ảnh đẹp',
+      desc: 'Ánh sáng khuếch tán lý tưởng',
+      type: 'Sáng tạo',
+      details: {
+        address: `Gần ${displayName}`,
+        hours: 'Cả ngày',
+        contact: 'Câu lạc bộ nhiếp ảnh địa phương',
+        description: 'Thời tiết nhiều mây tạo ánh sáng mềm mại, lý tưởng cho nhiếp ảnh phong cảnh.',
+        features: ['Cảnh quan đẹp', 'Không gian mở'],
+        weatherTip: 'Mang máy ảnh và ô phòng mưa nhẹ.',
+        websiteUrl: `https://www.google.com/search?q=best+photography+spots+in+${encodeURIComponent(simplifiedLocation)}`,
+        mapUrl: `https://www.google.com/maps/search/scenic+spots+${encodeURIComponent(simplifiedLocation)}`
+      }
+    });
+    break;
+  case 'rain':
+  case 'drizzle':
+    genericLocations.push({
+      icon: 'fa-museum',
+      name: 'Bảo tàng hoặc nhà văn hóa',
+      desc: 'Khám phá văn hóa trong ngày mưa',
+      type: 'Văn hóa',
+      details: {
+        address: `Gần ${displayName}`,
+        hours: '9:00 - 17:00',
+        contact: 'Quầy thông tin bảo tàng',
+        description: 'Bảo tàng là điểm đến lý tưởng để học hỏi và tránh mưa.',
+        features: ['Triển lãm đa dạng', 'Khu vực nghỉ ngơi'],
+        weatherTip: 'Mang ô khi di chuyển và tận hưởng không gian văn hóa.',
+        mapUrl: `https://www.google.com/maps/search/museums+near+${encodeURIComponent(simplifiedLocation)}`
+      }
+    });
+    break;
+  case 'thunderstorm':
+    genericLocations.push({
+      icon: 'fa-shopping-cart',
+      name: 'Trung tâm thương mại',
+      desc: 'Mua sắm và giải trí trong nhà',
+      type: 'Mua sắm',
+      details: {
+        address: `Gần ${displayName}`,
+        hours: '10:00 - 22:00',
+        contact: 'Quầy thông tin trung tâm',
+        description: 'Trung tâm thương mại cung cấp nhiều lựa chọn giải trí an toàn trong bão.',
+        features: ['Cửa hàng thời trang', 'Khu ẩm thực'],
+        weatherTip: 'Thư giãn với mua sắm và ẩm thực trong không gian thoải mái.',
+        mapUrl: `https://www.google.com/maps/search/shopping+malls+near+${encodeURIComponent(simplifiedLocation)}`
+      }
+    });
+    break;
+  case 'snow':
+    genericLocations.push({
+      icon: 'fa-mug-hot',
+      name: 'Quán cafe ấm cúng',
+      desc: 'Thưởng thức đồ uống nóng',
+      type: 'Thư giãn',
+      details: {
+        address: `Gần ${displayName}`,
+        hours: '7:00 - 22:00',
+        contact: 'Liên hệ quán cafe',
+        description: 'Thư giãn với đồ uống nóng trong không gian ấm áp giữa trời tuyết.',
+        features: ['Không gian cozy', 'Wi-Fi miễn phí'],
+        weatherTip: 'Mặc ấm và chọn chỗ ngồi gần cửa sổ để ngắm tuyết.',
+        mapUrl: `https://www.google.com/maps/search/cozy+cafes+near+${encodeURIComponent(simplifiedLocation)}`
+      }
+    });
+    break;
+  default:
+    genericLocations.push({
+      icon: 'fa-landmark',
+      name: 'Điểm tham quan nổi bật',
+      desc: 'Khám phá văn hóa và lịch sử',
+      type: 'Du lịch',
+      details: {
+        address: `Gần ${displayName}`,
+        hours: '8:00 - 17:00',
+        contact: 'Trung tâm du lịch địa phương',
+        description: 'Khám phá các địa điểm nổi tiếng để trải nghiệm văn hóa và lịch sử địa phương.',
+        features: ['Giá trị văn hóa', 'Tour hướng dẫn'],
+        weatherTip: 'Kiểm tra thời tiết trước khi tham quan để chuẩn bị phù hợp.',
+        mapUrl: `https://www.google.com/maps/search/tourist+attractions+near+${encodeURIComponent(simplifiedLocation)}`
+      }
+    });
+}
+
+// Combine specific and generic locations
+const cityKey = Object.keys(touristAttractions).find(key => displayName.toLowerCase().includes(key));
+if (cityKey) {
+  locations.push(...touristAttractions[cityKey]);
+}
+locations.push(...genericLocations);
+
+// Limit to 6 locations
+locations.slice(0, 6).forEach(location => {
+  const item = document.createElement('div');
+  item.className = 'location-item';
+  item.innerHTML = `
+    <div class="location-icon"><i class="fas ${location.icon}"></i></div>
+    <div class="location-name">${location.name}</div>
+    <div class="location-desc">${location.desc}</div>
+  `;
+  item.setAttribute('data-location', JSON.stringify(location));
+  item.addEventListener('click', () => showLocationDetails(location));
+  locationListElement.appendChild(item);
+});
+}
+
+// Show Location Details in Modal
+function showLocationDetails(location) {
+const { icon, name, type, details } = location;
+
+modalLocationIcon.innerHTML = `<i class="fas ${icon}"></i>`;
+modalLocationName.textContent = name;
+modalLocationType.textContent = type || 'Địa điểm';
+modalAddress.innerHTML = `<i class="fas fa-map-marker-alt"></i><span>${details.address || 'Không có thông tin'}</span>`;
+modalHours.innerHTML = `<i class="fas fa-clock"></i><span>${details.hours || 'Không có thông tin'}</span>`;
+modalContact.innerHTML = `<i class="fas fa-phone"></i><span>${details.contact || 'Không có thông tin'}</span>`;
+modalDescription.textContent = details.description || 'Không có mô tả chi tiết.';
+modalFeatures.innerHTML = details.features?.map(f => `<div class="detail-item"><i class="fas fa-star"></i><span>${f}</span></div>`).join('') || '<div class="detail-item"><i class="fas fa-info-circle"></i><span>Không có thông tin</span></div>';
+modalWeatherTip.textContent = details.weatherTip || 'Phù hợp với thời tiết hiện tại.';
+modalWebsiteBtn.onclick = () => window.open(details.websiteUrl || details.mapUrl || `https://www.google.com/search?q=${encodeURIComponent(name)}`, '_blank');
+modalDirectionsBtn.onclick = () => window.open(details.mapUrl || `https://www.google.com/maps/search/${encodeURIComponent(name)}`, '_blank');
+
+locationModal.style.display = 'flex';
+}
+
+// Update Visuals
+function updateVisuals(weatherId, weatherMain, temp) {
+const body = document.body;
+const container = document.querySelector('.container');
+body.classList.remove('clear-sky-bg', 'sunny-hot-bg', 'sunny-cool-bg', 'light-clouds-bg', 'dark-clouds-bg', 'light-rain-bg', 'rain-bg', 'heavy-rain-bg', 'thunderstorm-bg', 'snow-bg', 'mist-fog-bg');
+container.classList.remove('light-text', 'dark-text');
+document.querySelectorAll('.snowflake').forEach(s => s.remove());
+
+if (weatherId >= 600 && weatherId < 700) {
+  body.classList.add('snow-bg');
+  container.classList.add('dark-text');
+  sun.style.display = 'none';
+  // Add snowflakes
+  for (let i = 0; i < 50; i++) {
+    const snowflake = document.createElement('div');
+    snowflake.className = 'snowflake';
+    snowflake.innerHTML = '❄';
+    snowflake.style.left = `${Math.random() * 100}vw`;
+    snowflake.style.animationDuration = `${Math.random() * 5 + 5}s`;
+    snowflake.style.opacity = Math.random();
+    snowflake.style.fontSize = `${Math.random() * 10 + 10}px`;
+    body.appendChild(snowflake);
+  }
+} else if (weatherId >= 800 && weatherId < 801) {
+  sun.style.display = 'block';
+  if (temp >= 30) {
+    body.classList.add('sunny-hot-bg');
+    container.classList.add('dark-text');
+  } else if (temp >= 15) {
+    body.classList.add('clear-sky-bg');
+    container.classList.add('light-text');
+  } else {
+    body.classList.add('sunny-cool-bg');
+    container.classList.add('dark-text');
+  }
+} else if (weatherId >= 801 && weatherId <= 804) {
+  body.classList.add(weatherId < 803 ? 'light-clouds-bg' : 'dark-clouds-bg');
+  container.classList.add('dark-text');
+  sun.style.display = 'none';
+} else if (weatherId >= 500 && weatherId < 600) {
+  body.classList.add(weatherId < 502 ? 'light-rain-bg' : weatherId < 504 ? 'rain-bg' : 'heavy-rain-bg');
+  container.classList.add('dark-text');
+  sun.style.display = 'none';
+} else if (weatherId >= 200 && weatherId < 300) {
+  body.classList.add('thunderstorm-bg');
+  container.classList.add('dark-text');
+  sun.style.display = 'none';
+} else if (weatherId >= 300 && weatherId < 400) {
+  body.classList.add('light-rain-bg');
+  container.classList.add('dark-text');
+  sun.style.display = 'none';
+} else if (weatherId >= 700 && weatherId < 800) {
+  body.classList.add('mist-fog-bg');
+  container.classList.add('dark-text');
+  sun.style.display = 'none';
+} else {
+  body.classList.add('clear-sky-bg');
+  container.classList.add('light-text');
+  sun.style.display = 'block';
+}
+}
+</script>
+</body>
+</html>
